@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Message Board</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+
+  <body>
+    <div id="addressInput" class="status-indicator">Disconnected</div>
+
+    <div class="app-container">
+      <h1>Message Board</h1>
+      <div class="controls">
+        <div id="auth-section">
+          <button id="btn-connect">Conectar Wallet</button>
+          <button id="btn-logout" style="display: none">Cerrar Sesión</button>
+        </div>
+        <button id="sendBtn">Send Message</button>
+      </div>
+      <div id="messagesContainer">The messages will appear here...</div>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
