@@ -16,11 +16,15 @@
           <button id="btn-connect">Conectar Wallet</button>
           <button id="btn-logout" style="display: none">Cerrar Sesión</button>
         </div>
+        <input type="text" id="messageInput" placeholder="Escribe tu mensaje aquí..." />
         <button id="sendBtn">Send Message</button>
       </div>
-      <div id="messagesContainer">The messages will appear here...</div>
+
+      <div id="messagesContainer">
+        <h1>Cantidad de mensajes: <span id="messageCount"></span></h1>
+      </div>
     </div>
 
-    <script type="module" src="/main.js"></script>
+    <script type="module" src="./main.js"></script>
   </body>
 </html>

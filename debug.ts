@@ -7,7 +7,7 @@ async function main() {
   const accounts = simnet.getAccounts();
   const john = accounts.get("wallet_2")!;
   const deployer = accounts.get("deployer")!;
-  const CONTRACT = "message-board";
+  const CONTRACT = "message-board-v2";
   const contractPrincipal = `${deployer}.${CONTRACT}`;
 
   const S_BTC_ASSET = ".sbtc-token.sbtc-token";

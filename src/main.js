@@ -6,79 +6,169 @@ import {
   openContractCall,
 } from "@stacks/connect";
 
-import { uintCV, Pc } from "@stacks/transactions";
-import { STACKS_DEVNET } from "@stacks/network";
+import {
+  Cl,
+  Pc,
+  PostConditionMode,
+  uintCV,
+  fetchCallReadOnlyFunction,
+} from "@stacks/transactions";
+import { createNetwork } from "@stacks/network";
 
+// DOM elements
 const btnConnect = document.getElementById("btn-connect");
 const btnLogout = document.getElementById("btn-logout");
 const addressInput = document.getElementById("addressInput");
+const messageInput = document.getElementById("messageInput");
 const sendBtn = document.getElementById("sendBtn");
 const messagesContainer = document.getElementById("messagesContainer");
+const messageCount = document.getElementById("messageCount");
 
-let board = Array(9).fill(null);
-let currentPlayer = "X";
+// Contract config
+const contractAddress = "ST1KQYEWGK8023G55G9JHSH8A3YHP3RNX6JJY1F9Q";
+const contractName = "message-board-v2";
+const sbtcTokenAddress = "ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT";
+const sbtcTokenContractName = "sbtc-token";
+const fallbackSenderAddress = contractAddress;
+const NETWORK = createNetwork("testnet");
 
-// --- DELEGACIÓN DE EVENTOS ---
-// Un único 'listener' padre de todos.
-messagesContainer.addEventListener("click", (event) => {
-  // Si el clic aterrizó exactamente en algo con la clase "cell"
-  if (event.target.classList.contains("cell")) {
-    // Extraemos su número a partir del atributo data-index oculto
-    const index = parseInt(event.target.dataset.index, 10);
-    handlePlay(index);
-  }
-});
+// This id helps ignore old async render calls.
+let latestRenderRequestId = 0;
 
-function renderBoard() {
-  messagesContainer.innerHTML = "";
-  const boardEl = document.createElement("div");
-  boardEl.className = "tic-tac-toe-board";
-
-  board.forEach((cellValue, index) => {
-    const cell = document.createElement("div");
-    cell.className = "cell";
-
-    // Etiquetamos la caja con su número de forma pasiva
-    cell.dataset.index = index;
-
-    // Estilos para la marca X o O
-    if (cellValue === "X") {
-      cell.classList.add("player-x");
-    } else if (cellValue === "O") {
-      cell.classList.add("player-o");
-    }
-
-    cell.innerText = cellValue ? cellValue : "";
-    boardEl.appendChild(cell);
-  });
-  messagesContainer.appendChild(boardEl);
+function getWalletAddress(userData) {
+  return userData?.addresses?.stx?.[0]?.address || "";
 }
 
-async function handlePlay(index) {
-  if (addressInput.textContent === "Disconnected") {
-    alert("Por favor, conecta tu wallet primero para jugar.");
+function getReadOnlySender() {
+  const userData = getLocalStorage();
+  return getWalletAddress(userData) || fallbackSenderAddress;
+}
+
+function setAddressInput(address) {
+  if (!addressInput) return;
+  if ("value" in addressInput) {
+    addressInput.value = address;
+  }
+  addressInput.textContent = address;
+}
+
+function parseMessageTuple(cv) {
+  // Real shape: some -> tuple -> fields
+  if (!cv || cv.type === "none") return null;
+
+  const tupleCv = cv.type === "some" ? cv.value : cv;
+  if (!tupleCv || tupleCv.type !== "tuple" || !tupleCv.value) return null;
+
+  const message = tupleCv.value?.message?.value ?? "";
+  const author = tupleCv.value?.author?.value ?? "Desconocido";
+  const timeRaw = tupleCv.value?.time?.value ?? 0;
+
+  return {
+    message: String(message),
+    author: String(author),
+    time: Number(timeRaw),
+  };
+}
+
+function extractUint(cv) {
+  if (cv?.type === "uint") {
+    return Number(cv.value);
+  }
+  return 0;
+}
+
+function clearMessages() {
+  // Increase id to cancel old render calls.
+  latestRenderRequestId += 1;
+  document.querySelectorAll("#messagesList").forEach((node) => node.remove());
+  messageCount.textContent = "";
+}
+
+async function renderMessagesList(count) {
+  const requestId = ++latestRenderRequestId;
+
+  document.querySelectorAll("#messagesList").forEach((node) => node.remove());
+
+  const list = document.createElement("div");
+  list.id = "messagesList";
+  list.className = "messages-list";
+
+  if (count <= 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "No hay mensajes todavía.";
+    list.appendChild(empty);
+    messagesContainer.appendChild(list);
     return;
   }
 
-  if (!board[index]) {
-    // Detectar si es el primer movimiento
-    const isFirstMove = board.every((cell) => cell === null);
-    if (isFirstMove) {
-      // Disparar billetera para crear en la red
-      await createGameOnChain(index);
-    } else {
-      // Simulamos movimiento local temporalmente
-      board[index] = currentPlayer;
-      currentPlayer = currentPlayer === "X" ? "O" : "X";
-      renderBoard();
+  const senderAddress = getReadOnlySender();
+
+  for (let id = 1; id <= count; id += 1) {
+    if (requestId !== latestRenderRequestId) {
+      return;
+    }
+
+    try {
+      const response = await fetchCallReadOnlyFunction({
+        contractName,
+        contractAddress,
+        functionName: "get-message",
+        functionArgs: [uintCV(BigInt(id))],
+        senderAddress,
+        network: NETWORK,
+      });
+
+      const parsed = parseMessageTuple(response);
+      if (!parsed) continue;
+
+      const item = document.createElement("div");
+      item.className = "message-item";
+
+      const messageText = document.createElement("p");
+      messageText.className = "message-text";
+      messageText.textContent = parsed.message;
+
+      const meta = document.createElement("div");
+      meta.className = "message-meta";
+      meta.textContent = `#${id} | ${parsed.author} | bloque ${parsed.time}`;
+
+      item.appendChild(messageText);
+      item.appendChild(meta);
+      list.appendChild(item);
+    } catch (error) {
+      console.error(`Error leyendo mensaje ${id}:`, error);
     }
   }
+
+  if (requestId !== latestRenderRequestId) {
+    return;
+  }
+
+  document.querySelectorAll("#messagesList").forEach((node) => node.remove());
+  messagesContainer.appendChild(list);
 }
 
-function startGame() {
-  board = Array(9).fill(null);
-  currentPlayer = "X";
-  renderBoard();
+async function loadMessageData() {
+  try {
+    const senderAddress = getReadOnlySender();
+
+    const response = await fetchCallReadOnlyFunction({
+      contractName,
+      contractAddress,
+      functionName: "get-message-count",
+      functionArgs: [],
+      senderAddress,
+      network: NETWORK,
+    });
+
+    const count = extractUint(response);
+    messageCount.textContent = String(count);
+    await renderMessagesList(count);
+  } catch (error) {
+    console.error("Error al traer el conteo de mensajes:", error);
+    messageCount.textContent = "Error al cargar mensajes";
+  }
 }
 
 async function handleConnect() {
@@ -90,76 +180,96 @@ async function handleConnect() {
   }
 }
 
+async function handleSendMessage() {
+  try {
+    if (!isConnected()) {
+      messageCount.textContent =
+        "Conecta tu wallet para enviar mensajes al contrato.";
+      return;
+    }
+
+    const content = messageInput?.value?.trim();
+    if (!content) {
+      messageCount.textContent = "Escribe un mensaje antes de enviarlo.";
+      return;
+    }
+
+    const userData = getLocalStorage();
+    const senderAddress = getWalletAddress(userData);
+    if (!senderAddress) {
+      messageCount.textContent = "No se pudo leer la dirección de la wallet.";
+      return;
+    }
+
+    const postConditions = [
+      Pc.principal(senderAddress)
+        .willSendEq(1)
+        .ft(
+          `${sbtcTokenAddress}.${sbtcTokenContractName}`,
+          sbtcTokenContractName,
+        ),
+    ];
+
+    await openContractCall({
+      contractAddress,
+      contractName,
+      functionName: "add-message",
+      functionArgs: [Cl.stringUtf8(content)],
+      network: NETWORK,
+      postConditions,
+      postConditionMode: PostConditionMode.Deny,
+      appDetails: {
+        name: "Message Board",
+        icon: window.location.origin + "/favicon.ico",
+      },
+      onFinish: async (data) => {
+        console.log("Transacción enviada:", data);
+        if (messageInput) messageInput.value = "";
+        await loadMessageData();
+      },
+      onCancel: () => {
+        console.log("Transacción cancelada por el usuario");
+      },
+    });
+  } catch (error) {
+    console.error("Error al enviar mensaje:", error);
+    messageCount.textContent = "No se pudo enviar el mensaje.";
+  }
+}
+
 function updateUI() {
   const authenticated = isConnected();
   if (authenticated) {
     btnConnect.style.display = "none";
     btnLogout.style.display = "inline";
     const userData = getLocalStorage();
-    if (userData?.addresses) {
-      addressInput.textContent = userData.addresses.stx[0].address;
-    }
+    const address = getWalletAddress(userData) || fallbackSenderAddress;
+    setAddressInput(address || "Desconocido");
   } else {
     btnConnect.style.display = "inline";
     btnLogout.style.display = "none";
-    addressInput.textContent = "Disconnected";
+    setAddressInput("Disconected");
+    clearMessages();
+    return;
   }
+
+  loadMessageData();
 }
 
-// Listeners
+// Events
 btnConnect.addEventListener("click", handleConnect);
+sendBtn.addEventListener("click", handleSendMessage);
+messageInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    handleSendMessage();
+  }
+});
 btnLogout.addEventListener("click", () => {
   disconnect();
   updateUI();
 });
-sendBtn.addEventListener("click", startGame);
 
-// --- LLAMADAS A SMART CONTRACTS ---
-const network = STACKS_DEVNET;
-
-const contractAddress = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM";
-const contractName = "tic-tac-toe";
-
-async function createGameOnChain(moveIndex) {
-  const betAmount = 10000; // microSTX (Ejemplo: 0.01 STX)
-  const move = 1; // 1 = Jugador X
-
-  const functionArgs = [uintCV(betAmount), uintCV(moveIndex), uintCV(move)];
-
-  // Condición de seguridad (Post-Condition) para autorizar transferir los STX
-  const postConditions = [
-    Pc.principal(addressInput.textContent).willSendEq(betAmount).ustx(),
-  ];
-
-  // openContractCall lanza la ventana de Hiro Wallet en la pantalla del usuario
-  await openContractCall({
-    network,
-    contractAddress,
-    contractName,
-    functionName: "create-game",
-    functionArgs,
-    postConditions, // <- Agregamos la regla de seguridad a la transacción
-    appDetails: {
-      name: "Tic Tac Toe Explorer",
-      icon: window.location.origin + "/favicon.ico",
-    },
-    onFinish: (data) => {
-      console.log(
-        "Transacción de creación confirmada en la Billetera. TX ID:",
-        data.txId,
-      );
-
-      // Pintamos localmente asumiendo que la transacción se confirmó
-      board[moveIndex] = currentPlayer;
-      currentPlayer = currentPlayer === "X" ? "O" : "X";
-      renderBoard();
-    },
-    onCancel: () => {
-      console.log("El usuario cerró la ventana de su billetera sin confirmar.");
-    },
-  });
-}
-
-// Iniciar UI y renderizar tablero vacío al cargar
+// Init
+document.addEventListener("DOMContentLoaded", updateUI);
 updateUI();
-renderBoard();

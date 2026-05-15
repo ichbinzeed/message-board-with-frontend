@@ -85,12 +85,6 @@
     (get author (map-get? messages id))
 )
 
-;; Read-only function to get message count at a specific Stacks block height
-(define-read-only (get-message-count-at-block (block uint))
-    (ok (at-block
-        (unwrap! (get-stacks-block-info? id-header-hash block)
-            ERR_BLOCK_NOT_FOUND
-        )
-        (var-get message-count)
-    ))
+(define-read-only (get-message-count)
+    (var-get message-count)
 )

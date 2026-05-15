@@ -1,7 +1,7 @@
 import { Cl, ClarityType } from "@stacks/transactions";
 import { beforeEach, describe, expect, it } from "vitest";
 
-const CONTRACT = "message-board";
+const CONTRACT = "message-board-v2";
 const accounts = simnet.getAccounts();
 const alice = accounts.get("wallet_1")!;
 const john = accounts.get("wallet_2")!;
